@@ -5,30 +5,41 @@ import { sessionLogger } from './utils/logger';
 
 /**
  * NextJS Audio Player Component
- * Hard coded to stream only Book #2 from /books/2/audio endpoint
+ * Supports streaming from /audioStreaming/bookintro/{bookId}/audio endpoint
+ * Supports chapter streaming from /audioStreaming/chapters/{chapterId}/audio endpoint
  * Compatible with iOS AVPlayer, Android MediaPlayer, and React Native
  */
 const AudioPlayer = ({
+  bookId = 1, // Default to book 1, but now configurable
+  chapterId = null, // NEW: Support for chapter streaming (can be ID or chapter object)
+  chapter = null, // NEW: Support for full chapter object
   apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:10000',
   authToken,
   onProgressUpdate = null,
   autoPlay = false,
   showDownload = true,
   showBookmark = true,
-  className = ''
-}) => {  // Hard coded to book ID 2
-  const BOOK_ID = 2;  // Component initialization logging
+  className = '',
+  streamUrl = null, // NEW: allow passing a custom stream URL
+  progressUrl = null // NEW: allow passing a custom progress URL
+}) => {
+  const BOOK_ID = bookId;
+  // Support both chapterId (direct ID) and chapter (object with id property)
+  const CHAPTER_ID = chapter?.id || chapterId;  // Component initialization logging
   useEffect(() => {
     logger.info(LOG_CATEGORIES.INIT, '=== AUDIO PLAYER COMPONENT INITIALIZED ===');
     
     const initConfig = {
       bookId: BOOK_ID,
+      chapterId: CHAPTER_ID,
+      chapter: chapter,
       apiBaseUrl,
       hasAuthToken: !!authToken,
       autoPlay,
       showDownload,
       showBookmark,
-      className
+      className,
+      isChapterMode: !!CHAPTER_ID
     };
     
     // Check if we're in browser environment before accessing navigator
@@ -91,15 +102,28 @@ const AudioPlayer = ({
   // Refs
   const audioRef = useRef(null);
   const progressIntervalRef = useRef(null);
-  // API endpoints - hard coded to book 2
+  // API endpoints - using new audioStreaming endpoints
   const getStreamingUrl = useCallback(() => {
-    // Always use resume=true for playback
-    return `${apiBaseUrl}/audioStreaming/books/${BOOK_ID}/audio?resume=true`;
-  }, [apiBaseUrl]);
+    // Use streamUrl if provided (for custom streaming), otherwise determine based on chapterId or bookId
+    if (streamUrl) return streamUrl;
+    
+    if (CHAPTER_ID) {
+      return `${apiBaseUrl}/audioStreaming/chapters/${CHAPTER_ID}/audio`;
+    }
+    
+    return `${apiBaseUrl}/audioStreaming/bookintro/${BOOK_ID}/audio`;
+  }, [apiBaseUrl, BOOK_ID, CHAPTER_ID, streamUrl]);
 
   const getProgressUrl = useCallback(() => {
-    return `${apiBaseUrl}/audioStreaming/books/${BOOK_ID}/progress`;
-  }, [apiBaseUrl]);  // Initialize audio source
+    // Use progressUrl if provided (for custom progress tracking), otherwise determine based on chapterId or bookId
+    if (progressUrl) return progressUrl;
+    
+    if (CHAPTER_ID) {
+      return `${apiBaseUrl}/audioStreaming/chapters/${CHAPTER_ID}/progress`;
+    }
+    
+    return `${apiBaseUrl}/audioStreaming/bookintro/${BOOK_ID}/progress`;
+  }, [apiBaseUrl, BOOK_ID, CHAPTER_ID, progressUrl]);  // Initialize audio source
   useEffect(() => {
     const streamingUrl = getStreamingUrl();
     if (streamingUrl && audioRef.current) {
@@ -157,7 +181,7 @@ const AudioPlayer = ({
 
     const requestBody = {
       position: Math.floor(position),
-      status,
+      duration: Math.floor(duration), // Include duration as per new API spec
       playback_speed: playbackRate
     };
 
@@ -461,16 +485,21 @@ const AudioPlayer = ({
     if (streamingUrl) {
       const downloadTimer = perfLog.start('Audio download');
       
+      const chapterTitle = chapter?.title || chapter?.number || CHAPTER_ID;
+      const filename = CHAPTER_ID 
+        ? `chapter_${chapterTitle ? `${chapterTitle}_` : ''}${CHAPTER_ID}_audio.mp3`
+        : `book_${BOOK_ID}_audio.mp3`;
+      
       logger.info(LOG_CATEGORIES.NETWORK, 'Download initiated', {
         url: streamingUrl,
         hasAuth: !!authToken,
-        filename: `book_${BOOK_ID}_audio.mp3`
+        filename: filename
       });
       
       // Create download link with authentication
       const link = document.createElement('a');
       link.href = streamingUrl;
-      link.download = `book_${BOOK_ID}_audio.mp3`;
+      link.download = filename;
       
       // For authenticated downloads, we need to handle this differently
       if (authToken) {
@@ -606,7 +635,7 @@ const AudioPlayer = ({
   }, [getProgressUrl, authToken]);
 
   const handleResume = async () => {
-    const streamingUrl = `${apiBaseUrl}/audioStreaming/books/${BOOK_ID}/audio?resume=true`;
+    const streamingUrl = getStreamingUrl();
     setIsLoading(true);
     setError(null);
     if (authToken) {

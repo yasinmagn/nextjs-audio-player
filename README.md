@@ -2,7 +2,7 @@
 
 A feature-rich, mobile-optimized audio player component for NextJS applications with built-in authentication system. Designed for streaming audio from Node.js backends with full iOS AVPlayer, Android MediaPlayer, and React Native compatibility.
 
-> **📖 Note**: This version is hard-coded to stream only **Book #2** from the `/books/2/audio` endpoint.
+> **📖 Note**: This version uses the new `/audioStreaming/bookintro/{bookId}/audio` endpoint structure with configurable book IDs.
 
 ## ✨ Features
 
@@ -48,7 +48,7 @@ yarn install
 
 ### 3. Usage
 
-The complete app with authentication:
+The complete app with authentication and book selection:
 
 ```jsx
 import App from '../components/App';
@@ -58,23 +58,72 @@ export default function Home() {
 }
 ```
 
-Or use the standalone AudioPlayer component:
+Or use the standalone AudioPlayer component with dynamic book selection:
 
 ```jsx
+import { useState, useEffect } from 'react';
 import AudioPlayer from './AudioPlayer';
 
-<AudioPlayer
-  authToken={yourAuthToken}
-  bookId="book-123"
-  chapterId="chapter-456"  // Optional
-  audioId="audio-789"      // Optional
-  autoPlay={false}
-  showDownload={true}
-  showBookmark={true}
-  onProgressUpdate={(position, status, playbackRate) => {
-    console.log('Progress:', { position, status, playbackRate });
-  }}
-/>
+function BookPlayerPage() {
+  const [books, setBooks] = useState([]);
+  const [selectedBookId, setSelectedBookId] = useState(null);
+  const [authToken, setAuthToken] = useState('your-jwt-token');
+
+  // Fetch available books
+  useEffect(() => {
+    const fetchBooks = async () => {
+      const response = await fetch('/booksManagement/books', {
+        headers: { 'Authorization': `Bearer ${authToken}` }
+      });
+      const booksData = await response.json();
+      setBooks(booksData);
+      if (booksData.length > 0) {
+        setSelectedBookId(booksData[0].id); // Auto-select first book
+      }
+    };
+    
+    if (authToken) {
+      fetchBooks();
+    }
+  }, [authToken]);
+
+  return (
+    <div>
+      {/* Book Selection */}
+      <div className="mb-4">
+        <h3>Select a Book:</h3>
+        <div className="grid grid-cols-2 gap-4">
+          {books.map(book => (
+            <div 
+              key={book.id}
+              onClick={() => setSelectedBookId(book.id)}
+              className={`p-4 border rounded cursor-pointer ${
+                selectedBookId === book.id ? 'border-blue-500 bg-blue-50' : 'border-gray-200'
+              }`}
+            >
+              <h4>{book.title || `Book #${book.id}`}</h4>
+              {book.author && <p className="text-sm text-gray-600">by {book.author}</p>}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Audio Player */}
+      {selectedBookId && (
+        <AudioPlayer
+          authToken={authToken}
+          bookId={selectedBookId}
+          autoPlay={false}
+          showDownload={true}
+          showBookmark={true}
+          onProgressUpdate={(position, status, playbackRate) => {
+            console.log('Progress:', { position, status, playbackRate });
+          }}
+        />
+      )}
+    </div>
+  );
+}
 ```
 
 ## 🔐 Authentication Flow
@@ -121,19 +170,36 @@ GET /user/me
 # Response: { "id": 1, "email": "user@example.com", "name": "User" }
 ```
 
+### Books Management
+```bash
+# Get list of available books
+GET /booksManagement/books
+# Headers: Authorization: Bearer {token}
+# Response: [{ "id": 1, "title": "Book Title", "author": "Author Name", "description": "..." }, ...]
+```
+
 ### Audio Streaming
 ```bash
-GET /booksManagement/books/{bookId}/audio
+# Stream audio for a specific book
+GET /audioStreaming/bookintro/{bookId}/audio
+# Headers: Authorization: Bearer {token}
+
+# Update book progress
+POST /audioStreaming/bookintro/{bookId}/progress
+# Headers: Authorization: Bearer {token}
+# Body: { "position": 120, "duration": 3600, "playback_speed": 1.0 }
+
+# Get book progress  
+GET /audioStreaming/bookintro/{bookId}/progress
+# Headers: Authorization: Bearer {token}
+# Response: { "position": 120, "completion_percentage": 25, "is_finished": false }
+```
+
+### Legacy Audio Endpoints (Optional)
+```bash
 GET /booksManagement/chapters/{chapterId}/audio
 GET /booksManagement/audio/{audioId}/stream
 # Headers: Authorization: Bearer {token}
-```
-
-### Progress Tracking
-```bash
-POST /booksManagement/audio/{id}/progress
-# Headers: Authorization: Bearer {token}
-# Body: { "position": 120, "status": "playing", "playback_speed": 1.0 }
 ```
 
 ## 🎯 Component Props
@@ -387,20 +453,46 @@ NEXT_PUBLIC_API_URL=https://your-backend-api.com
 
 The player integrates with these backend endpoints:
 
+### Books Management
+```
+# Get list of available books
+GET /booksManagement/books
+Response: [
+  {
+    "id": 1,
+    "title": "The Great Gatsby",
+    "author": "F. Scott Fitzgerald", 
+    "description": "A classic American novel..."
+  }
+]
+```
+
 ### Streaming Endpoints
 ```
-GET /booksManagement/books/:bookId/audio
-GET /booksManagement/chapters/:chapterId/audio
-GET /booksManagement/audio/:audioId/stream
+# Stream audio for selected book
+GET /audioStreaming/bookintro/{bookId}/audio
+
+# Legacy endpoints (still supported)
+GET /booksManagement/chapters/{chapterId}/audio
+GET /booksManagement/audio/{audioId}/stream
 ```
 
 ### Progress Tracking
 ```
-POST /booksManagement/audio/:audioId/progress
+# Update listening progress
+POST /audioStreaming/bookintro/{bookId}/progress
 Body: {
   "position": 120,
-  "status": "playing",
+  "duration": 3600,
   "playback_speed": 1.5
+}
+
+# Get current progress
+GET /audioStreaming/bookintro/{bookId}/progress
+Response: {
+  "position": 120,
+  "completion_percentage": 25,
+  "is_finished": false
 }
 ```
 
@@ -632,7 +724,7 @@ This project demonstrates a robust audio player with resume and completion logic
 
 ## How It Works (Step-by-Step)
 1. **On Load**: The player calls the progress endpoint:
-   `/audioStreaming/books/{BOOK_ID}/progress`
+   `/audioStreaming/bookintro/{BOOK_ID}/progress`
    - If `progress.position > 0` and `completion_percentage < 100`, Resume is shown.
    - If `is_finished` is true/1 or `completion_percentage` is 100, Start Over Again is shown.
 2. **Resume**: Clicking Resume fetches the audio with `?resume=true` and starts playback from the last saved position.
@@ -656,7 +748,7 @@ This project demonstrates a robust audio player with resume and completion logic
 ## Example Resume Logic (React Native)
 ```js
 // Pseudocode for React Native
-const progress = await fetch(`/audioStreaming/books/${bookId}/progress`, { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json());
+const progress = await fetch(`/audioStreaming/bookintro/${bookId}/progress`, { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json());
 if (progress.progress.position > 0 && progress.progress.completion_percentage < 100) {
   // Show Resume
 }
@@ -666,9 +758,10 @@ if (progress.progress.is_finished === 1 || progress.progress.completion_percenta
 ```
 
 ## API Endpoints
-- `GET /audioStreaming/books/{bookId}/audio?resume=true` - Streams audio, resuming if possible.
-- `GET /audioStreaming/books/{bookId}/progress` - Gets user progress for the book.
-- `POST /booksManagement/audio/{bookId}/progress` - Updates user progress.
+- `GET /booksManagement/books` - Gets list of available books with metadata.
+- `GET /audioStreaming/bookintro/{bookId}/audio?resume=true` - Streams audio, resuming if possible.
+- `GET /audioStreaming/bookintro/{bookId}/progress` - Gets user progress for the book.
+- `POST /audioStreaming/bookintro/{bookId}/progress` - Updates user progress.
 
 ## Notes for Junior Developers
 - Always check for a valid Bearer token before making API calls.

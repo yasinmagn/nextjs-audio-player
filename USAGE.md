@@ -26,6 +26,7 @@ function BookPlayerPage() {
         authToken={authToken}
         apiBaseUrl="https://your-api.com"
         autoPlay={false}
+        // Uses /audioStreaming/bookintro/{bookId}/audio endpoint
         onProgressUpdate={(position, status, playbackRate) => {
           console.log(`Progress: ${position}s, Status: ${status}, Speed: ${playbackRate}x`);
         }}
